@@ -93,6 +93,7 @@ def scraper(url, current_page, max_page, current_soup):
 
     if max_page > 1:
         scrape(current_soup)
+        max_page += 10
         while current_page <= max_page:
             url = f'{url}&_pgn={current_page}'
             driver.get(url)

@@ -57,9 +57,10 @@ CREATE TABLE IF NOT EXISTS listings (
     )
 ''')
 
+
 def start_program():
     # Ask the user whether they have a url or want to search for a product
-    choice = input("Do you have a url or want to search for a product? ([u]rl/[s]earch/[v]iew database/[q]uit): ")
+    choice = input("Do you have a url or want to search for a product? ([u]rl/[s]earch/[c]lean up database/[v]iew database/[q]uit): ")
 
     if choice == "url" or choice == "u":
         url = input("Enter the url: ")
@@ -72,6 +73,9 @@ def start_program():
         url = f'https://www.ebay.ca/sch/i.html?_from=R40&_trksid=p4432023.m570.l1313&_nkw={search_term}&_sacat=0'
         soup, number_of_results, number_of_pages, search_id = base_info(url)
         scraper(url, 1, number_of_pages, soup, search_id)
+
+    elif choice == "clean up database" or choice == "c":
+        clean_up_database()
 
     elif choice == "view database" or choice == "v":
         view_database()
@@ -123,13 +127,46 @@ def append_listings(listing_data):
 
     session.commit()
 
+def clean_up_database():
+    cursor = conn.cursor()
+    # query = '''
+    #     CREATE TABLE IF NOT EXISTS listings_filtered AS
+    #     SELECT title, seller_name, MAX(price) AS max_price
+    #     FROM listings
+    #     GROUP BY title, seller_name;
+    # '''
+    # query = '''
+    #     CREATE TABLE IF NOT EXISTS listings_filtered AS
+    #     SELECT *
+    #     FROM (
+    #         SELECT
+    #             listings.*,
+    #             ROW_NUMBER() OVER (PARTITION BY title, seller_name ORDER BY price DESC) AS row_num
+    #         FROM listings 
+    #     ) ranked
+    #     WHERE row_num = 1;
+    # '''
+    query = '''
+        CREATE TABLE IF NOT EXISTS listings_filtered AS
+        SELECT *
+        FROM listings
+        GROUP BY search_id, title, seller_name, feedback, seller_rating, price
+        '''
+
+    cursor.execute(query)
+    conn.commit()
+
+    cursor.execute('ALTER TABLE listings_filtered RENAME TO filtered_listings')
+
+    conn.commit()
+    conn.close()
+
 
 def view_database():
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    data_table = input("Enter the name of the table you want to view: ")
 
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM listings')
+    cursor.execute(f'SELECT * FROM {data_table}')
     data = cursor.fetchall()
 
     # Get the column names
@@ -144,8 +181,37 @@ def view_database():
 
     html_table = table.get_html_string()
 
+    html1 = '''
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Sortable HTML Table</title>
+            <!-- Include DataTables CSS -->
+            <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.25/css/jquery.dataTables.css">
+        </head>
+        <body>
+            <table id="myTable">
+        '''
+
+    html2 = '''
+    <!-- Include jQuery and DataTables JavaScript -->
+    <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+    <script src="https://cdn.datatables.net/1.10.25/js/jquery.dataTables.js"></script>
+
+    <!-- Initialize DataTables -->
+    <script>
+        $(document).ready(function () {
+            $('#myTable').DataTable();
+        });
+    </script>
+
+    </body>
+    </html>
+    '''
+
     with open('table.html', 'w') as html_file:
-        html_file.write(html_table)
+        html_file.write(html1 + html_table + html2)
 
     # Print the table
     print(table)
@@ -167,6 +233,7 @@ def scrape(soup, search_id):
         try:
             price = item.find('span', class_='s-item__price').getText()
             price = price.split('$')[1].split('$')
+            price = price.replace(',', '')
             price = float(price[0])
         except AttributeError:
             continue
@@ -211,7 +278,7 @@ def scrape(soup, search_id):
             'ship_price': shipping,
             'combined_subtotal': subtotal,
             'tax': tax,
-            'combined_total': total
+            'combined_total': total,
         }
 
         listing_data.append(listing)
@@ -234,10 +301,12 @@ def scrape(soup, search_id):
 def scraper(url, current_page, max_page, current_soup, search_id):
 
     if current_page <= max_page and max_page > 1:
-        scrape(current_soup)
+        max_page = max_page * 2
+        scrape(current_soup, search_id)
         while current_page <= max_page:
-            url = f'{url}&_pgn={current_page}'
-            driver.get(url)
+            search_term = search_id.replace(" ", "+")
+            current_url = f'https://www.ebay.ca/sch/i.html?_from=R40&_nkw={search_term}&_sacat=0&_pgn={current_page}'
+            driver.get(current_url)
             time.sleep(5)
 
             soup = BeautifulSoup(driver.page_source, features='html.parser')
