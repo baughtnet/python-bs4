@@ -1,0 +1,6 @@
+sqlalchemy
+bs4
+selenium
+webdriver_manager
+requests
+loguru

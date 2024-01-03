@@ -52,6 +52,9 @@ def scrape(soup):
 
         try:
             price = item.find('span', class_='s-item__price').getText()
+            price = price.split('$')[1].split('$')
+            price = float(price[0])
+
         except AttributeError:
             continue
     
